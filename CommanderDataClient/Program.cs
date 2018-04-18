@@ -15,7 +15,7 @@ namespace CommanderDataClient
         private const string Filename = @"sequenceID.txt";
         private const string accessKey = "";  // get your key from https://www.visit-x.net/interfaces/content/settings.php
 
-        struct Key
+        private struct Key
         {
             public string type;
             public string key;
@@ -23,14 +23,15 @@ namespace CommanderDataClient
             public override string ToString() => $"{type}.{version}.{key}";
         }
 
-        // store this in your database
+        // store this in your database, memcache, redis, elasticsearch, mongo or what you prefer
         private readonly ConcurrentDictionary<Key, string> _database = new ConcurrentDictionary<Key, string>(); // key, json
-        private CancellationTokenSource _cancelToken;
 
-        private int _sequenceID;
+        private CancellationTokenSource _cancelToken;
+        private ulong _sequenceID;
 
         static void Main()
         {
+            if (String.IsNullOrWhiteSpace(accessKey)) return;
             var p = new Program();
             var task = p.Start();
             p.LoopPrintAllOnline(); // endless loop
@@ -66,7 +67,7 @@ namespace CommanderDataClient
                 {
                     using (var ws = new ClientWebSocket())
                     {
-                        // condition to get the onlinestate only - you can ommit conditions if you want.
+                        // you can add additional conditions to get only some entities. Please contact us for help.
                         var url = $"wss://data.campoints.net/?accessKey={accessKey}&seq={_sequenceID}";
                         Console.WriteLine($"Connect({url})");
                         await ws.ConnectAsync(new Uri(url), _cancelToken.Token);
@@ -108,7 +109,6 @@ namespace CommanderDataClient
             try
             {
                 var r = DynamicJson.Parse(json);
-                var data = (string) DynamicJson.Serialize(r.data);
                 var key = new Key {key = r.key, type = r.type, version = (int)r.version};
                 var deleted = (bool)r.deleted;
 
@@ -122,12 +122,12 @@ namespace CommanderDataClient
                     }
                     else
                     {
-                        _database.AddOrUpdate(key, data, (i, b) => data);
+                        _database.AddOrUpdate(key, json, (i, b) => json);
                         Console.WriteLine($"AddOrUpdate {key}");
                     }
                 }
 
-                var seq = (int)r.seq;
+                var seq = (ulong)r.seq;
                 SaveSequenceID(seq);
             }
             catch (Exception ex)
@@ -142,7 +142,7 @@ namespace CommanderDataClient
             Console.WriteLine("Loading sequenceID");
             try
             {
-                _sequenceID = int.Parse(File.ReadAllText(Filename));
+                _sequenceID = ulong.Parse(File.ReadAllText(Filename));
                 Console.WriteLine("Loaded sequenceID:" + _sequenceID);
             }
             catch (Exception ex)
@@ -152,7 +152,7 @@ namespace CommanderDataClient
         }
 
         // store persistent. database may be a better place
-        private void SaveSequenceID(int seq)
+        private void SaveSequenceID(ulong seq)
         {
             Console.WriteLine("Save sequenceID:" + seq);
             File.WriteAllText(Filename, seq.ToString());
